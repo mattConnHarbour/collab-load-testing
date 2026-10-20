@@ -1,0 +1,16 @@
+.env
+__pycache__/
+.pytest_cache/
+node_modules/
+dist/
+*.tsbuildinfo
+data/
+artifacts/*
+!artifacts/README.md
+!artifacts/keypress-path.html
+!artifacts/keypress-path.svg
+.venv/
+
+.DS_Store
+.env.*
+!.env.example

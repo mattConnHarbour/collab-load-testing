@@ -1,0 +1,11 @@
+node_modules
+**/node_modules
+**/dist
+**/*.tsbuildinfo
+**/__pycache__
+.git
+.env
+.env.*
+artifacts
+data
+.venv

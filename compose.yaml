@@ -1,0 +1,45 @@
+services:
+  server:
+    build:
+      context: .
+      target: server
+    init: true
+    environment:
+      PORT: "8100"
+      HOST: 0.0.0.0
+      PUBLIC_ORIGIN: ""
+      SERVE_CLIENT: "true"
+    ports:
+      - "8100:8100"
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:8100/api/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 2s
+      timeout: 5s
+      retries: 30
+  observer:
+    build:
+      context: .
+      target: observer
+    init: true
+    shm_size: 2gb
+    command: ["npm", "run", "observer", "--", "--host", "0.0.0.0", "--port", "3100", "--public-host", "observer"]
+    ports:
+      - "127.0.0.1:3100:3100"
+  generator:
+    build:
+      context: .
+      target: generator
+    init: true
+    shm_size: 2gb
+    profiles: [test]
+    environment:
+      OBSERVER_WS_URL: ${OBSERVER_WS_URL:-}
+    volumes:
+      - ./artifacts:/app/artifacts
+      - ./fixtures:/fixtures:ro
+    depends_on:
+      server:
+        condition: service_healthy
+      observer:
+        condition: service_started
+    command: ["--server-url", "http://server:8100", "--require-external-observer", "--document", "/app/server/assets/blank.docx", "--users", "2", "--layout", "first-two-pages"]

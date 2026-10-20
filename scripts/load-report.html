@@ -1,0 +1,73 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>SuperDoc collaboration load report</title>
+  <style>
+    body { margin: 0; background: #fafafa; color: #212121; font: 14px system-ui, sans-serif; }
+    main { max-width: 1200px; margin: 32px auto; padding: 0 24px; }
+    h1 { font-size: 28px; }
+    h2 { margin-top: 32px; }
+    .card { padding: 20px; background: white; border: 1px solid #dbdbdb; border-radius: 8px; margin: 16px 0; }
+    table { border-collapse: collapse; width: 100%; }
+    th, td { text-align: left; padding: 10px; border-bottom: 1px solid #eee; white-space: nowrap; }
+    th { font-size: 12px; color: #666; }
+    .scroll { overflow: auto; }
+    .swatch { display: inline-block; width: 12px; height: 12px; margin-right: 8px; border-radius: 2px; }
+    code { white-space: pre; font-size: 12px; }
+    svg { width: 100%; max-height: 220px; }
+    .pages { display: grid; grid-template-columns: repeat(auto-fit, minmax(340px, 1fr)); gap: 16px; }
+    figure { margin: 0; }
+    img { width: 100%; border: 1px solid #ddd; }
+    figcaption { padding: 8px; color: #666; }
+    summary { padding: 14px; cursor: pointer; }
+    a { color: #1355ff; }
+    .passed { color: #00853d; }
+    .failed { color: #a02e2e; }
+    .warning { color: #806414; }
+  </style>
+</head>
+<body>
+<main>
+  <h1>SuperDoc collaboration load report</h1>
+  <p class="{{STATUS_CLASS}}"><strong>{{STATUS}} VALIDATION</strong> · {{STARTED_AT}} · {{WRITERS}} writers + one passive observer</p>
+  <p class="warning">{{PARTIAL_NOTE}}</p>
+  <div class="card">
+    <p><strong>Scenario:</strong> {{SCENARIO}} · requested {{REQUESTED_RATE}} characters/second per writer · {{KEY_COUNT}} characters per writer</p>
+    <p><strong>Document:</strong> {{SOURCE}}. Original content retained; {{TARGETS}} synthetic typing paragraph(s) {{PLACEMENT}} in a test copy.</p>
+    <p><strong>Room:</strong> <a href="{{ROOM_URL}}">{{ROOM_ID}}</a></p>
+    <p><strong>Timing:</strong> browser keydown → rendered DOM text. Remote latency is measured at the passive observer, with clocks calibrated against the generator before and after the run. Maximum combined estimated uncertainty is ±{{CLOCK}} ms, based on calibration round trips; per-keystroke ranges are in the CSV and JSON. DOM arrival approximates display timing and does not certify screen paint. Local samples use a single browser clock. Coalesced updates count when the expected prefix first becomes observable.</p>
+    <p><strong>Typing:</strong> at least one printable key in the preceding second. Connections count synchronized test browsers; the document-service SDK connection is excluded. The observer keeps typing pages rendered in a tall viewport. Separate processes on the same host still share CPU and memory; inspect the role locations below when interpreting the results.</p>
+    <p>Actual chars/s shows achieved keydown rate. Input delivery measures dispatch → browser keydown; dispatch lateness measures planned → actual controller dispatch. These delays are separate from editor latency. A validation pass does not certify that the requested typing rate was sustained, or that latency met a target unless <code>--max-p95-ms</code> was supplied.</p>
+    <p class="warning">{{RATE_WARNING}}</p>
+    <p>{{ARTIFACTS}}</p>
+  </div>
+  <h2>Role locations</h2>
+  <div class="card scroll">{{TOPOLOGY}}</div>
+  <h2>Connections and active typing</h2>
+  <div class="card">
+    <p><strong>Peak connected browsers:</strong> {{PEAK_CONNECTED}} · <strong>Peak typing writers:</strong> {{PEAK_TYPING}} · <strong>Measured duration:</strong> {{DURATION}} s</p>
+    <p><span class="swatch" style="background:#1355ff"></span>Connected browsers <span class="swatch" style="background:#00853d;margin-left:20px"></span>Typing writers</p>
+    {{TIMELINE}}
+  </div>
+  <h2>User latency and color key</h2>
+  <div class="card scroll">
+    <table>
+      <thead><tr><th>User</th><th>Page</th><th>Keys</th><th>Actual chars/s</th><th>Input delivery p95</th><th>Dispatch lateness p95</th><th>Local p50</th><th>Local p95</th><th>Remote p50</th><th>Remote p95</th><th>Remote max</th><th>Unobserved local/remote</th><th>Final text matches</th></tr></thead>
+      <tbody>{{USER_ROWS}}</tbody>
+    </table>
+  </div>
+  <h2>Document typing regions</h2>
+  <p>Rectangles identify the final rendered text written by each user. Each image includes the same color key and p95 latencies. Click an image for full size.</p>
+  <div class="pages">{{PAGE_IMAGES}}</div>
+  <h2>Failures and validation</h2>
+  <div class="card">
+    <p>{{FAILURES}}</p>
+    <p>Each writer checks its own rendered target; the observer checks all targets. This is not an assertion that every offscreen page was painted in every writer.</p>
+  </div>
+  <h2>Per-keystroke detail</h2>
+  {{DETAILS}}
+</main>
+</body>
+</html>

@@ -1,0 +1,143 @@
+<!doctype html>
+<html lang="en"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Collaboration character progress</title>
+<style>
+*{box-sizing:border-box}body{margin:0;background:#f5f7fb;color:#182338;font:14px/1.5 system-ui}main{max-width:1500px;margin:auto;padding:24px}h1{margin:0 0 6px;font-size:26px}p{margin:6px 0 14px}.muted{color:#637086}button,select{font:inherit;background:white;color:inherit;border:1px solid #cbd4e3;border-radius:6px;padding:6px 10px}button{cursor:pointer}button:hover{background:#edf2fb}button:focus-visible,select:focus-visible{outline:2px solid #315aff;outline-offset:2px}.controls{display:flex;gap:16px;flex-wrap:wrap;align-items:center;margin:20px 0 12px}.controls label{display:flex;gap:8px;align-items:center}a{color:#315ab6}.panel{background:white;border:1px solid #d9e0ec;border-radius:9px;overflow:hidden}#summary{padding:12px 16px;border-bottom:1px solid #e4e9f2;font-weight:600}.chart-wrap{padding:8px 12px 0}svg{display:block;width:100%;touch-action:pan-y}.axis{font-size:12px;color:#627087}.grid line{stroke:#e9edf4}.grid path{display:none}.series{fill:none;stroke-width:1.5}.point{cursor:pointer;stroke:white;stroke-width:.6}.point:focus{outline:none;stroke:#111;stroke-width:2}#legend{display:flex;flex-wrap:wrap;gap:6px;padding:12px 16px;border-top:1px solid #edf0f5}#legend button{font-size:12px;padding:4px 8px;display:flex;gap:6px;align-items:center}#legend button[aria-pressed=true]{border-color:#315aff;background:#eef2ff}.swatch{width:9px;height:9px;border-radius:50%;display:inline-block;flex-shrink:0}.help{font-size:12px;padding:0 16px 12px;color:#637086}.selection{margin-top:14px;padding:16px}.selection h2{font-size:16px;margin:0 0 8px}.stats{display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:10px;margin:12px 0}.stat{background:#f5f7fb;border-radius:5px;padding:8px 10px}.stat strong{display:block;font-size:17px}.prefix{font:13px ui-monospace,monospace;white-space:pre-wrap;overflow-wrap:anywhere;background:#f4f6fa;padding:10px;border-radius:5px}#tip{display:none;position:fixed;z-index:5;background:#17243b;color:white;padding:10px 12px;border-radius:6px;pointer-events:none;white-space:pre-line;font-size:12px;max-width:340px}.footnote{font-size:12px;color:#637086;margin-top:12px}#activity{font-size:13px;color:#46536b}.brush .selection{fill:#5975bb;fill-opacity:.14;stroke:#8197c2}.expected{fill:none;stroke:#7c8798;stroke-dasharray:5 4;stroke-width:1.5}
+@media(max-width:650px){main{padding:12px}.controls{gap:10px}.controls label{flex-wrap:wrap}select{max-width:100%}}
+</style>
+<main>
+<h1>Character progress</h1>
+<p class="muted">Each colored line follows one user. Dots mark when each character was detected; flat stretches show a wait and vertical jumps show characters detected together.</p>
+<div class="controls">
+<label>Trial <select id="trial"></select></label>
+<label>Measurement <select id="metric"><option value="remote">Observer text</option><option value="local">Local text</option><option value="keydown">Browser keydown</option></select></label>
+<label>Highlight <select id="focus"><option value="">All users</option></select></label>
+<button id="reset">Reset zoom</button><button id="clear">Clear selection</button>
+<a href="profiling-report.html">Profiling findings</a>
+</div>
+<div class="panel">
+<div id="summary"></div>
+<div class="chart-wrap"><svg id="chart" height="500" role="img" aria-label="Character position versus elapsed time for each user"></svg><svg id="overview" height="75" aria-label="Drag to select the visible time window"></svg></div>
+<div class="help">Dashed line: expected typing schedule. Drag the overview handles or use the wheel to zoom; drag the plot to pan. Click a user below to highlight their dots, then click a dot for details.</div>
+<div id="legend"></div>
+</div>
+<section id="selection" class="panel selection" aria-live="polite">
+<h2 id="selected-title">Select a character</h2>
+<div id="selected-description" class="muted">Hover over a dot for its character and timing. Click to keep its measurements here.</div>
+<div id="selected-stats" class="stats"></div>
+<div id="selected-prefix"></div>
+<div id="activity"></div>
+</section>
+<p class="footnote">Missing points remain unknown; lines stop at the last recorded character or break across missing observations. Text detection can batch multiple characters. Observer clocks are approximate. Concurrent events suggest investigation targets and do not establish what blocked a character. These profiled trials shared one machine; the 20-user run timed out.</p>
+</main><div id="tip"></div>
+<script>/* D3_BUNDLE */</script>
+<script>
+const trials = /* TRIAL_DATA */;
+const $=id=>document.getElementById(id),chart=d3.select('#chart'),overview=d3.select('#overview'),tip=d3.select('#tip');
+const margin={left:65,right:24,top:22,bottom:48},height=500;
+const labels={remote:'Observer text',local:'Local text',keydown:'Browser keydown'};
+const fmt=ms=>Number.isFinite(ms)?(Math.abs(ms)>=1000?`${(ms/1000).toFixed(3)} s`:`${ms.toFixed(1)} ms`):'not observed';
+const escapeHTML=v=>String(v??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+let trial,domain,full,width,x,y,brush,overviewScale,syncing=false,selected=null;
+function metric(){return $('metric').value;}
+function points(user){return user.keys.map(k=>({...k,time:k[metric()],n:k.index+1,user:user.id,color:user.color}));}
+function hideTip(){tip.style('display','none');}
+function focusUser(id){$('focus').value=id;draw();renderLegend();}
+function choose(){
+ trial=trials[+$('trial').value];selected=null;hideTip();
+ $('focus').replaceChildren(new Option('All users',''),...trial.users.map(u=>new Option(u.id,u.id)));
+ setFullDomain();setup();renderSelection();
+}
+function setFullDomain(){
+ const times=trial.users.flatMap(u=>u.keys.flatMap(k=>[k.due,k[metric()]])).filter(Number.isFinite);
+ full=[0,Math.max(1,...times)*1.025];domain=[...full];
+}
+function setup(){
+ width=$('chart').clientWidth;
+ y=d3.scaleLinear().domain([0,trial.expectedText.length]).range([height-margin.bottom,margin.top]);
+ overviewScale=d3.scaleLinear().domain(full).range([margin.left,width-margin.right]);
+ overview.selectAll('*').remove();
+ const bins=d3.bin().domain(full).thresholds(90)(trial.users.flatMap(u=>points(u).filter(p=>Number.isFinite(p.time)).map(p=>p.time)));
+ const h=d3.scaleLinear().domain([0,d3.max(bins,b=>b.length)||1]).range([0,30]);
+ overview.selectAll('rect.bar').data(bins).join('rect').attr('class','bar').attr('x',b=>overviewScale(b.x0)).attr('width',b=>Math.max(0,overviewScale(b.x1)-overviewScale(b.x0)-1)).attr('y',b=>36-h(b.length)).attr('height',b=>h(b.length)).attr('fill','#a7b9d8');
+ overview.append('g').attr('class','axis').attr('transform','translate(0,43)').call(d3.axisBottom(overviewScale).ticks(8).tickFormat(t=>`${d3.format('.3~g')(t/1000)}s`));
+ brush=d3.brushX().extent([[margin.left,0],[width-margin.right,38]]).on('brush end',event=>{
+  if(syncing||!event.selection)return;
+  const next=event.selection.map(overviewScale.invert);
+  if(next[1]-next[0]<1)return;domain=next;draw();
+ });
+ overview.append('g').attr('class','brush').call(brush);moveBrush();draw();renderLegend();
+}
+function moveBrush(){syncing=true;overview.select('.brush').call(brush.move,domain.map(overviewScale));syncing=false;}
+function renderLegend(){
+ const total=trial.expectedText.length;
+ d3.select('#legend').selectAll('button').data(trial.users,u=>u.id).join('button').attr('type','button').attr('aria-pressed',u=>String($('focus').value===u.id)).html(u=>`<i class="swatch" style="background:${escapeHTML(u.color)}"></i>${escapeHTML(u.id)} · ${points(u).filter(p=>Number.isFinite(p.time)).length}/${total}`).on('click',(_,u)=>focusUser($('focus').value===u.id?'':u.id));
+}
+function draw(){
+ x=d3.scaleLinear().domain(domain).range([margin.left,width-margin.right]);
+ const count=trial.users.reduce((sum,u)=>sum+points(u).filter(p=>Number.isFinite(p.time)).length,0);
+ $('summary').textContent=`${trial.writers} users · ${labels[metric()]} · ${count}/${trial.writers*trial.expectedText.length} characters recorded${trial.partial?' · INCOMPLETE RUN':''}`;
+ chart.selectAll('*').remove();
+ chart.append('defs').append('clipPath').attr('id','progress-clip').append('rect').attr('x',margin.left).attr('y',margin.top-5).attr('width',Math.max(1,width-margin.left-margin.right)).attr('height',height-margin.bottom-margin.top+10);
+ chart.append('g').attr('class','grid').attr('transform',`translate(0,${height-margin.bottom})`).call(d3.axisBottom(x).ticks(8).tickSize(-(height-margin.bottom-margin.top)).tickFormat(''));
+ chart.append('g').attr('class','axis').attr('transform',`translate(0,${height-margin.bottom})`).call(d3.axisBottom(x).ticks(8).tickFormat(t=>d3.format('.3~g')(t/1000)));
+ const ticks=[0,...d3.range(5,trial.expectedText.length,5),trial.expectedText.length];
+ chart.append('g').attr('class','axis').attr('transform',`translate(${margin.left},0)`).call(d3.axisLeft(y).tickValues(ticks).tickSizeOuter(0));
+ chart.append('text').attr('x',(margin.left+width-margin.right)/2).attr('y',height-7).attr('text-anchor','middle').attr('fill','#637086').attr('font-size',12).text('Elapsed time since typing start (seconds)');
+ chart.append('text').attr('transform','rotate(-90)').attr('x',-(height-margin.bottom+margin.top)/2).attr('y',16).attr('text-anchor','middle').attr('fill','#637086').attr('font-size',12).text('Character position');
+ const plot=chart.append('g').attr('clip-path','url(#progress-clip)');
+ const line=d3.line().defined(p=>Number.isFinite(p.time)).x(p=>x(p.time)).y(p=>y(p.n)).curve(d3.curveStepAfter);
+ const expectedUser=trial.users.find(u=>u.id===$('focus').value)||trial.users[0];
+ const expected=[{time:0,n:0},...expectedUser.keys.map(k=>({time:k.due,n:k.index+1})),{time:full[1],n:trial.expectedText.length}];
+ plot.append('path').attr('class','expected').attr('d',line(expected));
+ const sameSchedule=trial.users.every(u=>u.keys.every((k,i)=>k.due===trial.users[0].keys[i]?.due));
+ const expectedLabel=sameSchedule?'Expected schedule · all users':`Expected schedule · ${expectedUser.id}`;
+ chart.append('text').attr('x',margin.left+10).attr('y',margin.top+14).attr('font-size',11).attr('fill','#637086').text(expectedLabel);
+ const focus=$('focus').value;
+ const ordered=[...trial.users].sort((a,b)=>Number(a.id===focus)-Number(b.id===focus));
+ for(const user of ordered){
+  const active=!focus||focus===user.id,all=points(user),observed=all.filter(p=>Number.isFinite(p.time));
+  const group=plot.append('g').attr('class','user-series').attr('data-user',user.id).attr('opacity',active?1:.09);
+  group.append('path').attr('class','series').attr('stroke',user.color).attr('stroke-opacity',focus?.85:.5).attr('stroke-width',focus&&active?2:1.5).attr('d',line([{time:0,n:0},...all]));
+  group.selectAll('circle').data(observed).join('circle').attr('class','point').attr('data-index',p=>p.index).attr('cx',p=>x(p.time)).attr('cy',p=>y(p.n)).attr('r',p=>selected?.user===p.user&&selected?.index===p.index?5:focus&&active?3.8:2.7).attr('fill',user.color).attr('tabindex',focus&&active?0:-1).attr('aria-label',p=>`${p.user}, character ${p.n}, ${JSON.stringify(p.char)}, ${fmt(p.time)}`).on('pointermove',(event,p)=>{
+   tip.style('display','block').style('left',`${Math.max(8,Math.min(event.clientX+14,innerWidth-345))}px`).style('top',`${Math.max(8,Math.min(event.clientY+14,innerHeight-160))}px`).text(`${p.user} · character ${p.n}: ${JSON.stringify(p.char)}\n${labels[metric()]} at ${fmt(p.time)}\nBehind schedule: ${fmt(p.time-p.due)}\nLocal latency: ${fmt(p.local===null?null:p.local-p.keydown)}\nObserver latency: ${fmt(p.remote===null?null:p.remote-p.keydown)}\nClick to keep details`);
+  }).on('pointerleave',hideTip).on('click',(_,p)=>selectPoint(p)).on('keydown',(event,p)=>{if(event.key==='Enter'||event.key===' '){event.preventDefault();selectPoint(p);}});
+  const last=observed.at(-1);
+  if(last&&last.n<trial.expectedText.length)group.append('circle').attr('cx',x(last.time)).attr('cy',y(last.n)).attr('r',5).attr('fill','none').attr('stroke',user.color).attr('stroke-width',1.5).attr('pointer-events','none');
+ }
+}
+function selectPoint(point){selected={user:point.user,index:point.index};hideTip();renderSelection();draw();}
+function renderSelection(){
+ if(!selected){$('selected-title').textContent='Select a character';$('selected-description').textContent='Hover over a dot for its character and timing. Click to keep its measurements here.';$('selected-stats').replaceChildren();$('selected-prefix').replaceChildren();$('activity').replaceChildren();return;}
+ const user=trial.users.find(u=>u.id===selected.user),k=user.keys.find(k=>k.index===selected.index),time=k[metric()];
+ $('selected-title').textContent=`${user.id} · character ${k.index+1}: ${JSON.stringify(k.char)}`;
+ $('selected-description').textContent=`${labels[metric()]}: ${fmt(time)} after typing start. Scheduled for ${fmt(k.due)}.${time===null?' This milestone was not captured.':''}`;
+ const stats=[['Scheduler delay',k.dispatch===null?null:k.dispatch-k.due],['Input delivery',k.keydown===null||k.dispatch===null?null:k.keydown-k.dispatch],['Local text latency',k.local===null?null:k.local-k.keydown],['Observer text latency',k.remote===null?null:k.remote-k.keydown]];
+ $('selected-stats').innerHTML=stats.map(([label,value])=>`<div class="stat">${label}<strong>${fmt(value)}</strong></div>`).join('');
+ $('selected-prefix').innerHTML='<div class="muted">Expected text through this character</div><div class="prefix"></div>';
+ $('selected-prefix').querySelector('.prefix').textContent=trial.expectedText.slice(0,k.index+1);
+ if(time===null){$('activity').textContent='No interval is inferred for the missing milestone.';return;}
+ const events=trial.operations.filter(op=>op.start<=time&&op.end>=k.due);
+ const traffic=trial.traffic.filter(bin=>bin.at<time&&bin.at+1000>k.due);
+ const lag=trial.lag.filter(sample=>sample.at>=k.due&&sample.at<=time);
+ $('activity').textContent=`While this character was pending (scheduled → ${labels[metric()].toLowerCase()}): ${events.filter(e=>e.lane==='yjs-transaction').length.toLocaleString()} backend transactions, ${events.filter(e=>e.lane==='yjs-update-broadcast').length.toLocaleString()} broadcast spans, ${d3.sum(traffic,b=>b.count).toLocaleString()} incoming awareness frames, and ${events.filter(e=>e.lane.endsWith('long tasks')).length} browser long tasks (U01/observer only). Largest reported event-loop delay: ${lag.length?fmt(d3.max(lag,s=>s.max)):'no samples in interval'}. Traffic includes whole overlapping 1-second buckets. These events are concurrent observations, not proven causes of this delay.`;
+}
+let pointerStart;
+chart.on('wheel',event=>{
+ const local=event.clientX-chart.node().getBoundingClientRect().left;if(local<margin.left)return;event.preventDefault();
+ const at=x.invert(local),size=Math.min(full[1],Math.max(1,(domain[1]-domain[0])*Math.exp(Math.max(-1,Math.min(1,event.deltaY*.002))))),fraction=(at-domain[0])/(domain[1]-domain[0]);
+ const start=Math.max(0,Math.min(full[1]-size,at-size*fraction));domain=[start,start+size];moveBrush();draw();hideTip();
+},{passive:false}).on('pointerdown',event=>{
+ if(event.target.closest('.point'))return;pointerStart={x:event.clientX,domain:[...domain]};chart.node().setPointerCapture(event.pointerId);
+}).on('pointermove',event=>{
+ if(!pointerStart)return;const size=pointerStart.domain[1]-pointerStart.domain[0],delta=(event.clientX-pointerStart.x)*size/(width-margin.left-margin.right),start=Math.max(0,Math.min(full[1]-size,pointerStart.domain[0]-delta));domain=[start,start+size];moveBrush();draw();
+}).on('pointerup pointercancel',()=>pointerStart=null);
+trials.forEach((t,i)=>$('trial').add(new Option(`${t.writers} users${t.partial?' (partial)':''}`,i)));
+$('trial').onchange=choose;
+$('metric').onchange=()=>{hideTip();setFullDomain();setup();renderSelection();};
+$('focus').onchange=()=>{draw();renderLegend();};
+$('reset').onclick=()=>{domain=[...full];moveBrush();draw();};
+$('clear').onclick=()=>{selected=null;hideTip();renderSelection();draw();};
+window.addEventListener('resize',setup);
+choose();
+</script></html>

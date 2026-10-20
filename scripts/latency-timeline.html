@@ -1,0 +1,223 @@
+<!doctype html><meta charset="utf-8"><title>Collaboration latency waterfall</title>
+<style>
+*{box-sizing:border-box}body{font:14px system-ui;margin:24px;color:#172036;background:#f6f8fc}h1{font-size:25px}p{max-width:1100px;line-height:1.5}a{color:#3156b0}button,select{font:inherit;padding:7px;border:1px solid #b9c3d6;border-radius:5px;background:white}button{cursor:pointer}.controls,.legend{display:flex;gap:15px;align-items:center;flex-wrap:wrap;margin:16px 0}.swatch{display:inline-block;width:16px;height:9px;margin-right:5px}.panel{background:white;border:1px solid #d3daea;border-radius:8px;overflow:hidden}#scroll{max-height:65vh;overflow-y:auto}svg{display:block;width:100%}.label{font-size:12px;fill:#263754}.user-label{cursor:pointer;font-weight:600}.grid{stroke:#e9edf5;pointer-events:none}.stage{cursor:pointer}.stage:hover{stroke:#111;stroke-width:1.5}#details{min-height:110px;white-space:pre-wrap;padding:12px;font:13px/1.5 ui-monospace,monospace;background:#eef2f9}#tip{position:fixed;pointer-events:none;display:none;background:#142038;color:white;padding:10px;border-radius:5px;white-space:pre-line;max-width:390px;z-index:5;font-size:12px}#summary{font-weight:600}
+</style>
+<style>
+.row-guide{background:white;border:1px solid #d3daea;border-radius:8px;padding:16px;margin:18px 0}.row-guide h2{font-size:17px;margin:0 0 6px}.row-guide p{margin:6px 0}.row-guide .diagram-scroll{overflow-x:auto}.row-guide svg{min-width:900px;font:13px system-ui}.row-guide .milestone{stroke:#526079;stroke-width:1}.row-guide .explanations{display:grid;grid-template-columns:repeat(auto-fit,minmax(230px,1fr));gap:12px;margin:12px 0}.row-guide .explanations p{margin:3px 0;color:#46536a}.row-guide .example-note{color:#566075;font-size:12px}
+.diagnostics{padding:14px 16px;border-top:1px solid #d3daea;border-bottom:1px solid #d3daea;background:#f8faff}.diagnostics h2{font-size:16px;margin:0}.diagnostics .controls{margin:10px 0}.metric-cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:10px}.metric-card{background:white;border:1px solid #d3daea;border-radius:6px;padding:10px}.metric-card strong,.metric-card small{display:block}.metric-card strong{margin:5px 0;font-size:18px}.metric-card small,.scope-note{color:#566075;font-size:12px;line-height:1.5}.diagnostics details{margin-top:12px}.diagnostics summary{cursor:pointer;font-weight:600}.diagnostics table{border-collapse:collapse;width:100%;margin:12px 0;font-size:12px}.diagnostics td,.diagnostics th{padding:7px;text-align:left;border-bottom:1px solid #d3daea;overflow-wrap:anywhere}.table-scroll{overflow-x:auto}.diagnostics h3{font-size:14px;margin:18px 0 6px}.diagnostics .scope-note{margin:8px 0}.diagnostics code{overflow-wrap:anywhere}
+#scroll{max-height:min(40vh,380px);overflow-x:hidden;scrollbar-gutter:stable;overscroll-behavior-y:contain}#event-lanes{border-top:1px solid #b9c3d6;background:#fbfcff}.lane-heading{font-size:12px;font-weight:600;color:#566075;padding:8px 12px;margin:0}
+</style>
+<h1>Collaboration latency waterfall</h1>
+<p>Read left to right: scheduled input → dispatch → browser keydown → local text update. The lower bar runs from keydown to the observer’s text update. Expand a user to see each keystroke. Long bars reveal waiting and overlapping work; backend spans show measured operations.</p>
+<p><strong>Evidence limits:</strong> overlap does not prove that one operation blocked another. These bars measure text detection, not every internal function or network hop. Browser long tasks cover U01 and the observer only; worker CPU profiles were unavailable. Cross-process clocks are approximate. Event-loop markers report a sampled maximum, not a precisely timed stall.</p>
+<div class="controls"><label>Trial <select id="trial"></select></label><label>Bars <select id="mode"><option value="all">All stages</option><option value="local">Local completion</option><option value="remote">Observer completion</option></select></label><button id="expand">Expand all users</button><button id="collapse">Collapse users</button><button id="reset">Reset zoom</button><label><input type="checkbox" id="backend" checked> Backend / browser activity</label><a id="report">Trial report</a> · <a href="profiling-report.html">Profiling findings</a></div>
+<section class="row-guide" aria-labelledby="row-guide-title">
+<h2 id="row-guide-title">How to read one keystroke row</h2>
+<p>Time runs left to right. One keystroke has an upper track and a lower track.</p>
+<div class="diagram-scroll">
+<svg viewBox="0 0 1120 205" role="img" aria-labelledby="row-diagram-title row-diagram-desc">
+<title id="row-diagram-title">Annotated example keystroke</title>
+<desc id="row-diagram-desc">The upper track contains gray scheduling delay, yellow input delivery delay, and dark blue local text latency. Dispatch is the boundary between gray and yellow. The lower track is observer text latency in the user's color. Both blue intervals start at browser keydown.</desc>
+<g fill="#263754">
+<text x="140" y="31" text-anchor="middle">Scheduled time</text>
+<text x="430" y="23" text-anchor="middle" font-weight="700">Dispatch</text>
+<text x="430" y="41" text-anchor="middle" font-size="11">gray → yellow boundary</text>
+<text x="610" y="31" text-anchor="middle" font-weight="700">Browser keydown</text>
+<text x="760" y="31" text-anchor="middle">Local text visible</text>
+<text x="16" y="85">Upper track</text><text x="16" y="148">Lower track</text>
+</g>
+<g class="milestone"><path d="M140 43V96M430 47V96M760 43V96" fill="none"/><path d="M610 43V164" stroke-dasharray="4 3"/></g>
+<rect x="140" y="70" width="290" height="24" fill="#acb5c5"/>
+<rect x="430" y="70" width="180" height="24" fill="#e49b2f"/>
+<rect x="610" y="70" width="150" height="24" fill="#2768b3"/>
+<text x="285" y="87" text-anchor="middle" fill="#172036">1. Scheduling delay</text>
+<text x="520" y="87" text-anchor="middle" fill="#172036">2. Input delivery delay</text>
+<text x="685" y="87" text-anchor="middle" fill="white">3. Local text latency</text>
+<rect x="610" y="133" width="430" height="22" fill="#4b78ff"/>
+<text x="825" y="149" text-anchor="middle" fill="white">4. Observer text latency · user color</text>
+<path d="M1040 155V168" class="milestone"/>
+<text x="1040" y="185" text-anchor="end" fill="#263754">Observer text visible</text>
+</svg>
+</div>
+<div class="explanations">
+<div><strong><i class="swatch" style="background:#acb5c5"></i>1. Gray: scheduling delay</strong><p>Scheduled time → generator dispatch. How late the generator sent the key.</p></div>
+<div><strong><i class="swatch" style="background:#e49b2f"></i>2. Yellow: input delivery delay</strong><p>Dispatch → browser keydown. How long the sent key took to reach the browser's input handler.</p></div>
+<div><strong><i class="swatch" style="background:#2768b3"></i>3. Dark blue: local text latency</strong><p>Keydown → expected text detected in the typing user's document.</p></div>
+<div><strong><i class="swatch" style="background:#4b78ff"></i>4. User color: observer text latency</strong><p>Keydown → expected text detected in the observer's document. The color changes with the user.</p></div>
+</div>
+<p><strong>Both blue intervals start at keydown.</strong> The lower bar overlaps the local update; do not add those durations. Dispatch is a point in time, not a blue bar.</p>
+<p class="example-note">Illustrative proportions, not measured values. ◇ means a keydown or completion was not captured; it is not a zero-duration result. Click actual bars below for measured timings.</p>
+</section>
+<p id="summary"></p><div class="panel"><svg id="overview" height="80" aria-label="Select time window"></svg><p style="padding:0 12px">Scroll user rows vertically. Ctrl/⌘ + wheel to zoom, or drag the overview selection; drag the timeline to pan. <span id="window"></span></p>
+<section class="diagnostics" aria-labelledby="diagnostics-title">
+<h2 id="diagnostics-title">What else was happening?</h2>
+<div class="controls"><label>Activity interval <select id="context-scope"><option value="window">Visible time window</option><option value="key" disabled>Selected key: schedule → last observed milestone</option><option value="local" disabled>Selected key: local latency</option><option value="remote" disabled>Selected key: observer latency</option></select></label><button id="zoom-context" disabled>Zoom to interval</button><span id="context-range"></span></div>
+<div id="context-cards" class="metric-cards"></div>
+<p class="scope-note">These are concurrent observations across the captured processes, not operations proven to block the selected key. Traffic uses complete 1-second buckets intersecting the interval. Operation counts include overlapping spans with their full durations; clocks are approximate.</p>
+<details id="run-evidence"><summary>Whole-run evidence: traffic, transport, function profiles, and memory</summary><p class="scope-note">The evidence below describes this entire capture, including setup/cleanup where recorded. It does not change with zoom or key selection. Profiling adds overhead; missing worker profiles limit attribution.</p><div id="run-evidence-content"></div></details>
+</section>
+<p class="lane-heading" id="user-lanes-title">Users · scroll independently to line up keystrokes with the events below</p>
+<svg id="axis" height="30"></svg><div id="scroll" tabindex="0" role="region" aria-labelledby="user-lanes-title"><svg id="chart" role="img" aria-label="Per-user keystroke waterfall"></svg></div>
+<div id="event-lanes"><p class="lane-heading">Event activity · same time axis</p><svg id="event-axis" height="30"></svg><svg id="events" role="img" aria-label="Backend and browser event timeline"></svg></div>
+<div id="details" aria-live="polite">Click a bar for timings. Compact user rows overlay events; expand a user to see the sequence.</div></div><div id="tip"></div>
+<script>/* D3_BUNDLE */</script><script>
+const trials = /* TRIAL_DATA */;
+const $=id=>document.getElementById(id), margin=195, right=25;
+const fmt=v=>Number.isFinite(v)?(v>=1000?`${(v/1000).toFixed(3)} s`:`${v.toFixed(1)} ms`):'not observed';
+let trial,full,domain,width,x,brush,overviewScale,selected,selectedKey,syncing=false,expanded=new Set();
+const chart=d3.select('#chart'),events=d3.select('#events'),axis=d3.select('#axis'),eventAxis=d3.select('#event-axis'),overview=d3.select('#overview'),tip=d3.select('#tip');
+const colors={'yjs-transaction':'#398c78','yjs-update-broadcast':'#ba5d69','U01 long tasks':'#a06c24','observer long tasks':'#8d62a7'};
+function hover(node,text){node.on('pointermove',event=>tip.style('display','block').style('left',`${Math.max(0,Math.min(event.clientX+12,innerWidth-405))}px`).style('top',`${Math.max(0,Math.min(event.clientY+12,innerHeight-160))}px`).text(text)).on('pointerleave',()=>tip.style('display','none'));}
+function choose(){
+ trial=trials[+$('trial').value];selected=null;selectedKey=null;
+ $('context-scope').value='window';
+ for(const option of $('context-scope').options)option.disabled=option.value!=='window';
+ const ends=trial.users.flatMap(u=>u.keys.flatMap(k=>[k.due,k.dispatch,k.keydown,k.local,k.remote])).filter(Number.isFinite);
+ full=[0,Math.max(1,...ends)*1.015];domain=[...full];
+ $('report').href=trial.reportUrl;
+ const keys=trial.users.flatMap(u=>u.keys);
+ $('summary').textContent=`${trial.writers} users · ${keys.filter(k=>k.keydown!==null).length}/${keys.length} keydowns · ${keys.filter(k=>k.local!==null).length} local completions · ${keys.filter(k=>k.remote!==null).length} observer completions${trial.partial?' · INCOMPLETE — missing completions remain unknown':''}`;
+ $('details').textContent='Click a bar for timings. Compact user rows overlay events; expand a user to see the sequence.';
+ renderEvidence();
+ setup();
+}
+function setup(){
+ width=$('chart').clientWidth;overviewScale=d3.scaleLinear().domain(full).range([margin,width-right]);overview.selectAll('*').remove();
+ overview.append('text').attr('x',12).attr('y',26).attr('class','label').text('Keydown overview');
+ const bins=d3.bin().domain(full).thresholds(100)(trial.users.flatMap(u=>u.keys.filter(k=>k.keydown!==null).map(k=>k.keydown)));
+ const h=d3.scaleLinear().domain([0,d3.max(bins,b=>b.length)||1]).range([0,38]);
+ overview.selectAll('.bin').data(bins).join('rect').attr('class','bin').attr('x',b=>overviewScale(b.x0)).attr('y',b=>48-h(b.length)).attr('width',b=>Math.max(0,overviewScale(b.x1)-overviewScale(b.x0)-1)).attr('height',b=>h(b.length)).attr('fill','#8fa9d4');
+ overview.append('g').attr('transform','translate(0,55)').call(d3.axisBottom(overviewScale).ticks(8).tickFormat(t=>`${(t/1000).toFixed(1)}s`));
+ brush=d3.brushX().extent([[margin,0],[width-right,51]]).on('brush end',event=>{if(syncing||!event.selection)return;const next=event.selection.map(overviewScale.invert);if(next[1]-next[0]<1)return;domain=next;draw();});
+ overview.append('g').attr('class','brush').call(brush);moveBrush();draw();
+}
+function moveBrush(){syncing=true;overview.select('.brush').call(brush.move,domain.map(overviewScale));syncing=false;}
+function showKey(user,key){
+ selected=`${user.id}-${key.index}`;selectedKey={user,key};
+ $('context-scope').options[1].disabled=false;
+ $('context-scope').options[2].disabled=key.local===null;
+ $('context-scope').options[3].disabled=key.remote===null;
+ $('context-scope').value='key';
+ $('details').textContent=`${user.id} · key ${key.index+1} · ${JSON.stringify(key.char)}\nScheduled ${fmt(key.due)} → dispatched ${fmt(key.dispatch)} → keydown ${fmt(key.keydown)}\nScheduler delay ${key.dispatch===null?'not observed':fmt(key.dispatch-key.due)} · input delivery ${key.keydown===null||key.dispatch===null?'not observed':fmt(key.keydown-key.dispatch)}\nLocal latency ${key.local===null?'not observed':fmt(key.local-key.keydown)} · observer latency ${key.remote===null?'not observed':fmt(key.remote-key.keydown)} · reported observer clock bound ±${fmt(key.uncertainty)}\nLocal and observer intervals both start at keydown; do not add their durations. No dependency on another user is inferred.`;
+ draw();
+}
+const escapeHTML=value=>String(value??'').replace(/[&<>"']/g,char=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[char]));
+function table(headers,rows){return `<div class="table-scroll"><table><thead><tr>${headers.map(h=>`<th>${escapeHTML(h)}</th>`).join('')}</tr></thead><tbody>${rows.map(row=>`<tr>${row.map(cell=>`<td>${escapeHTML(cell)}</td>`).join('')}</tr>`).join('')}</tbody></table></div>`;}
+function contextInterval(){
+ const scope=$('context-scope').value;
+ if(scope==='window'||!selectedKey)return [...domain];
+ const k=selectedKey.key;
+ if(scope==='local')return [k.keydown,k.local];
+ if(scope==='remote')return [k.keydown,k.remote];
+ return [k.due,Math.max(...[k.due,k.dispatch,k.keydown,k.local,k.remote].filter(Number.isFinite))];
+}
+function renderContext(){
+ const [start,end]=contextInterval(),scope=$('context-scope').value;
+ const ops=trial.operations.filter(op=>op.start<=end&&op.end>=start);
+ const traffic=trial.traffic.filter(bin=>bin.at<end&&bin.at+1000>start);
+ const awareness=d3.sum(traffic,b=>b.count),updates=d3.sum(traffic,b=>b.updates),returned=d3.sum(traffic,b=>b.returned);
+ const transactions=ops.filter(op=>op.lane==='yjs-transaction').map(op=>op.end-op.start).sort(d3.ascending);
+ const broadcasts=ops.filter(op=>op.lane==='yjs-update-broadcast');
+ const tasks=ops.filter(op=>op.lane.endsWith('long tasks'));
+ const lag=trial.lag.filter(sample=>sample.at>=start&&sample.at<=end);
+ $('context-range').textContent=`${scope==='window'?'Window':`${selectedKey.user.id} key ${selectedKey.key.index+1}`}: ${fmt(start)} – ${fmt(end)}`;
+ $('zoom-context').disabled=end<=start;
+ const card=(label,value,note)=>`<div class="metric-card">${escapeHTML(label)}<strong>${escapeHTML(value)}</strong><small>${escapeHTML(note)}</small></div>`;
+ $('context-cards').innerHTML=[
+  card('Presence / cursor traffic',trial.hasBackend?`${awareness.toLocaleString()} frames`:'Not captured',`${updates.toLocaleString()} document-update frames; ${returned.toLocaleString()} presence frames match a previous send to the same connection.`),
+  card('Backend operations',trial.hasBackend?`${transactions.length.toLocaleString()} transactions`:'Not captured',`${broadcasts.length.toLocaleString()} broadcast spans; transaction p95 ${transactions.length?fmt(d3.quantileSorted(transactions,.95)):'not observed'}.`),
+  card('Browser long tasks',trial.browserCoverage.length?`${tasks.length} captured`:'Not captured',`U01: ${tasks.filter(t=>t.lane.startsWith('U01')).length}; observer: ${tasks.filter(t=>t.lane.startsWith('observer')).length}; longest ${tasks.length?fmt(d3.max(tasks,t=>t.end-t.start)):'not observed'}. Coverage: ${trial.browserCoverage.join(', ')||'none'}.`),
+  card('Sampled event-loop delay',lag.length?fmt(d3.max(lag,s=>s.max)):'No samples in interval',`${lag.length} reporting points across generator/server. Largest sampled delay; this is not the duration of a specific blocking operation.`),
+ ].join('');
+}
+function renderEvidence(){
+ const e=trial.evidence,root=$('run-evidence-content');
+ if(!e){root.textContent='No matching profiling-analysis.json was supplied. The activity panel still uses raw captured events. Generate a profiling analysis and rebuild this chart, or pass --analysis FILE.';return;}
+ const traffic=e.traffic,awareness=traffic.awarenessIncoming,returned=traffic.awarenessReturned;
+ let html=`<h3>Measured presence traffic · suspected contributor</h3><p>${awareness.toLocaleString()} incoming awareness frames; ${returned.toLocaleString()} (${awareness?(100*returned/awareness).toFixed(1):'0'}%) match a payload previously sent to the same connection. This supports investigating presence forwarding; it does not prove a feedback loop or quantify its latency cost.</p>`;
+ html+=table(['Message type','Incoming frames','Outgoing frames'],['awareness','update'].map(kind=>[kind==='awareness'?'Presence / cursor':'Document update',traffic.incoming[kind]?.count??0,traffic.outgoing[kind]?.count??0]));
+ html+='<h3>Matched transport boundaries · U01 update frames, not individual keys</h3>';
+ html+=table(['Boundary','Matched frames','Mean delay','p95 delay','Negative estimates'],[['Browser send capture → backend receive','writerToServer'],['Backend receive → observer send enqueue','backendRelay'],['Observer send enqueue → browser receipt','serverToObserver']].map(([label,key])=>{const s=e.transport[key];return [label,s?.count??0,fmt(s?.mean),fmt(s?.p95),s?.negative??0];}));
+ html+='<p class="scope-note">These intervals include queueing, process scheduling, transport, and instrumentation. Different frame populations cannot be added to each other or to per-key averages. Negative estimates indicate clock-alignment limits. A send enqueue does not establish delivery.</p>';
+ html+='<h3>Host memory · whole-machine observations</h3>';
+ const gib=bytes=>`${(bytes/1024**3).toFixed(2)} GiB`;
+ if(!e.host.length)html+='<p>No host memory snapshots were captured for this trial.</p>';
+ else {
+  html+=table(['Snapshot after typing start','Physical RAM','Free RAM','Swap allocated','1-minute load'],e.host.map(s=>[fmt(s.at),gib(s.total),`${(s.free/1024**2).toFixed(1)} MiB`,s.swapMiB===null?'not captured':gib(s.swapMiB*1024**2),s.load.toFixed(1)]));
+  if(e.host.length>=2){const first=e.host[0],last=e.host.at(-1);if([first.swapInPages,last.swapInPages,first.swapOutPages,last.swapOutPages,first.pageBytes,last.pageBytes].every(Number.isFinite)&&first.pageBytes===last.pageBytes){html+=`<p>Between snapshots (${fmt(last.at-first.at)}): ${gib((last.swapInPages-first.swapInPages)*first.pageBytes)} swapped in and ${gib((last.swapOutPages-first.swapOutPages)*first.pageBytes)} swapped out. Active paging is a plausible contributor; these host counters do not identify which application owned the pages.</p>`;}}
+ }
+ html+='<h3>Browser style / layout activity · aggregate counters</h3>';
+ html+=table(['Browser','Layout count increase','Style recalculation count increase'],[['U01',e.browser.writer],['Observer',e.browser.observer]].map(([label,delta])=>[label,delta?.LayoutCount??'not captured',delta?.RecalcStyleCount??'not captured']));
+ html+='<h3>Sampled functions · expand a process to inspect</h3><p class="scope-note">Top functions across each captured profile. Sample-weighted self time includes sampling gaps and is not precise CPU time. Functions are not linked to the selected key. Inspector/logging overhead is included; worker profiles are missing. Q8n, where present, was inspected as an overlay visibility/style check; DOM and layout samples suggest cursor rendering as an investigation target.</p>';
+ for(const profile of e.profiles){
+  html+=`<details><summary>${escapeHTML(profile.target)} · top ${profile.functions.length} functions</summary><p class="scope-note">Largest sampling gap: ${fmt(profile.maxSampleGapMs)}.</p>`;
+  html+=table(['Function','Sample-weighted self time','Samples','Source'],profile.functions.map(fn=>[fn.name,fmt(fn.selfMs),fn.samples,`${fn.source}:${fn.line}`]));
+  html+='</details>';
+ }
+ html+='<p><a href="profiling-report.html">Full profiling findings and raw profile links</a></p>';
+ root.innerHTML=html;
+}
+function draw(){
+ x=d3.scaleLinear().domain(domain).range([margin,width-right]);$('window').textContent=`${fmt(domain[0])} – ${fmt(domain[1])} since typing start`;
+ renderContext();
+ for(const target of [axis,eventAxis]){target.selectAll('*').remove();target.append('g').attr('transform','translate(0,27)').call(d3.axisTop(x).ticks(9).tickFormat(t=>`${(t/1000).toFixed(2)}s`));}
+ function createPlot(svg,id){svg.selectAll('*').remove();svg.append('defs').append('clipPath').attr('id',id).append('rect').attr('x',margin).attr('width',Math.max(1,width-margin-right)).attr('height',40000);return svg.append('g').attr('clip-path',`url(#${id})`);}
+ function grid(plot,height){plot.insert('g',':first-child').selectAll('line').data(x.ticks(9)).join('line').attr('class','grid').attr('x1',x).attr('x2',x).attr('y1',0).attr('y2',height);}
+ let svg=chart,plot=createPlot(chart,'user-plot-clip'),y=12;
+ function label(text,yy,action){const n=svg.append('text').attr('x',12).attr('y',yy+13).attr('class',action?'label user-label':'label').text(text);if(action)n.attr('tabindex',0).attr('role','button').on('click',action).on('keydown',e=>{if(e.key==='Enter'||e.key===' '){e.preventDefault();action();}});}
+ function span(start,end,yy,height,color,opacity=1){if(!Number.isFinite(start)||!Number.isFinite(end)||end<domain[0]||start>domain[1])return null;return plot.append('rect').attr('class','stage').attr('x',x(start)).attr('y',yy).attr('width',Math.max(1,x(end)-x(start))).attr('height',height).attr('fill',color).attr('fill-opacity',opacity);}
+ for(const user of trial.users){
+  const open=expanded.has(user.id),groupY=y;
+  label(`${open?'▾':'▸'} ${user.id} · ${user.keys.length} keys`,y,()=>{open?expanded.delete(user.id):expanded.add(user.id);draw();});
+  chart.append('rect').attr('x',178).attr('y',y+5).attr('width',8).attr('height',8).attr('fill',user.color);if(open)y+=23;
+  for(const key of user.keys){
+   const yy=open?y:groupY+3,elements=[],mode=$('mode').value;if(open)label(`${key.index+1}. ${JSON.stringify(key.char)}`,yy);
+   if(mode==='all'){elements.push(span(key.due,key.dispatch,yy+2,6,'#acb5c5'));elements.push(span(key.dispatch,key.keydown,yy+2,6,'#e49b2f'));}
+   if(mode!=='remote')elements.push(span(key.keydown,key.local,yy+2,6,'#2768b3'));
+   if(mode!=='local')elements.push(span(key.keydown,key.remote,yy+11,5,user.color,open?.75:.35));
+   if(key.keydown===null||(mode!=='local'&&key.remote===null)||(mode!=='remote'&&key.local===null)){
+    const at=key.keydown??key.dispatch??key.due;
+    elements.push(plot.append('path').attr('class','stage').attr('d',d3.symbol().type(d3.symbolDiamond).size(30)()).attr('transform',`translate(${x(at)},${yy+13})`).attr('fill','white').attr('stroke',user.color));
+   }
+   const text=`${user.id} key ${key.index+1} ${JSON.stringify(key.char)}\nLocal: ${key.local===null?'not observed':fmt(key.local-key.keydown)}\nObserver: ${key.remote===null?'not observed':fmt(key.remote-key.keydown)}\nClick for timings`;
+   for(const n of elements.filter(Boolean)){n.on('click',()=>showKey(user,key)).attr('data-user',user.id).attr('data-key',key.index);if(selected===`${user.id}-${key.index}`)n.attr('stroke','#111').attr('stroke-width',1.5);hover(n,text);}
+   if(open)y+=21;
+  }
+  if(!open)y+=27;
+  chart.append('line').attr('x1',0).attr('x2',width).attr('y1',y-3).attr('y2',y-3).attr('stroke','#edf0f5');
+ }
+ chart.attr('height',y+10);grid(plot,y+10);
+ svg=events;plot=createPlot(events,'event-plot-clip');y=10;
+ $('event-lanes').hidden=!$('backend').checked;
+ if($('backend').checked){
+  for(const lane of Object.keys(colors)){
+   label(lane.replace('yjs-','Backend: '),y);
+   for(const op of trial.operations.filter(op=>op.lane===lane)){const n=span(op.start,op.end,y+2,12,colors[lane],.6);if(n)hover(n,`${lane}\n${fmt(op.start)} → ${fmt(op.end)}\nDuration ${fmt(op.end-op.start)}\nNested / overlapping spans must not be summed.`);}y+=29;
+  }
+  label('Awareness received / s',y);const h=d3.scaleLinear().domain([0,d3.max(trial.traffic,e=>e.count)||1]).range([0,40]);
+  for(const e of trial.traffic){const n=span(e.at,e.at+1000,y+42-h(e.count),h(e.count),'#64999a');if(n)hover(n,`${e.count.toLocaleString()} incoming awareness frames\n${fmt(e.at)} – ${fmt(e.at+1000)}\nAll backend connections; 1-second buckets.`);}y+=58;
+  for(const role of ['generator','server']){
+   label(`${role}: loop delay sample`,y);
+   for(const e of trial.lag.filter(e=>e.role===role&&e.at>=domain[0]&&e.at<=domain[1])){
+    const n=plot.append('path').attr('d',d3.symbol().type(d3.symbolTriangle).size(45)()).attr('transform',`translate(${x(e.at)},${y+10})`).attr('fill','#bd5e25');
+    hover(n,`${role} sample at ${fmt(e.at)}\nMaximum sampled event-loop delay: ${fmt(e.max)}\nReporting interval: ${fmt(e.interval)}\nMarker is report time, not the start of a proven blocking operation.`);
+   }y+=28;
+  }
+ }
+ events.attr('height',y+10);grid(plot,y+10);
+}
+// Use the current window for each gesture so brush changes and wheel zoom remain consistent.
+let dragStart;
+d3.selectAll('#chart,#events').on('wheel',event=>{
+ if(event.offsetX<margin||(!event.ctrlKey&&!event.metaKey))return;event.preventDefault();const at=x.invert(event.offsetX),factor=Math.exp(Math.max(-1,Math.min(1,event.deltaY*.002)));
+ const size=Math.min(full[1],Math.max(1,(domain[1]-domain[0])*factor)),fraction=(at-domain[0])/(domain[1]-domain[0]);
+ const start=Math.max(0,Math.min(full[1]-size,at-size*fraction));domain=[start,start+size];moveBrush();draw();
+},{passive:false}).on('pointerdown',event=>{if(event.offsetX<margin||event.target.closest('.stage'))return;dragStart={x:event.clientX,domain:[...domain]};event.currentTarget.setPointerCapture(event.pointerId);}).on('pointermove',event=>{
+ if(!dragStart)return;const size=dragStart.domain[1]-dragStart.domain[0],delta=(event.clientX-dragStart.x)*size/(width-margin-right),start=Math.max(0,Math.min(full[1]-size,dragStart.domain[0]-delta));domain=[start,start+size];moveBrush();draw();
+}).on('pointerup pointercancel',()=>dragStart=null);
+trials.forEach((t,i)=>$('trial').add(new Option(`${t.writers} users${t.partial?' (partial)':''}`,i)));
+$('trial').onchange=choose;$('mode').onchange=draw;$('backend').onchange=draw;
+$('context-scope').onchange=renderContext;
+$('zoom-context').onclick=()=>{const [start,end]=contextInterval();if(end<=start)return;domain=[Math.max(0,start),Math.min(full[1],end)];moveBrush();draw();};
+$('expand').onclick=()=>{expanded=new Set(trial.users.map(u=>u.id));draw();};$('collapse').onclick=()=>{expanded.clear();draw();};$('reset').onclick=()=>{domain=[...full];moveBrush();draw();};window.addEventListener('resize',setup);choose();
+</script>

@@ -1,0 +1,100 @@
+<!doctype html><html lang="en"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Keypress path · profiled collaboration</title><style>body{font:14px/1.6 system-ui;background:#f5f7fb;color:#203049;margin:24px}main{max-width:1320px;margin:auto}h1{font-size:24px}a{color:#315ab6}.diagram{overflow:auto;background:white;border:1px solid #d9e0ec;border-radius:10px}.diagram svg{display:block;width:100%;min-width:1000px;height:auto}details{padding:14px;background:white;border:1px solid #d9e0ec;border-radius:8px;margin-top:14px}summary{cursor:pointer;font-weight:600}table{border-collapse:collapse;width:100%;font-size:13px}td,th{border-bottom:1px solid #e1e7f1;padding:9px;text-align:left;vertical-align:top}code{font-size:12px;overflow-wrap:anywhere}.muted{color:#637086}li{margin:8px 0}</style><main>
+<p><a href="keypress-path.svg">Open / save SVG diagram</a> · <a href="profiled-first-page-2026-10-19/character-progress.html">Character progress</a> · <a href="profiled-first-page-2026-10-19/profiling-report.html">Profiling evidence</a></p>
+<div class="diagram"><svg xmlns="http://www.w3.org/2000/svg" width="1320" height="1040" viewBox="0 0 1320 1040" role="img" aria-labelledby="title description">
+<title id="title">From dispatched key to observable text</title><desc id="description">The writer handles input and applies an edit. Local text observation branches from the edit, independently of the server round trip. Document updates travel to the collaboration backend and then to the observer, which applies and renders them. Presence traffic runs alongside this path. Timing markers describe measured boundaries, not a causal trace for every key.</desc>
+<defs><marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0L10 5L0 10Z" fill="#65758f"/></marker></defs>
+<style>text{font-family:Arial,sans-serif;fill:#203049}.heading{font-size:17px;font-weight:700}.body{font-size:13px;fill:#52627b}.label{font-size:12px;fill:#61728c}.flow{fill:none;stroke:#65758f;stroke-width:1.7;marker-end:url(#arrow)}.lane{fill:#f6f8fc;stroke:#e1e7f1}.box{fill:white;stroke:#bcc9dd;stroke-width:1.4}.measured{fill:#eef4ff;stroke:#5b80ce}.dashed{stroke-dasharray:5 4}.tag{font-size:12px;font-weight:700;fill:#3158a0}</style>
+<rect width="1320" height="1040" fill="white"/>
+<text x="32" y="39" style="font-size:25px;font-weight:700">From dispatched key to observable text</text>
+<text x="32" y="65" class="body">Source-based flow for the profiled demo. Arrows show data flow, not scaled durations or proven blocking dependencies.</text>
+<rect class="lane" x="24" y="91" width="216" height="750" rx="10"/>
+<text class="heading" x="41" y="120">Load generator</text>
+<rect class="lane" x="270" y="91" width="310" height="750" rx="10"/>
+<text class="heading" x="287" y="120">Writer browser</text>
+<rect class="lane" x="610" y="91" width="310" height="750" rx="10"/>
+<text class="heading" x="627" y="120">Collaboration backend</text>
+<rect class="lane" x="950" y="91" width="346" height="750" rx="10"/>
+<text class="heading" x="967" y="120">Observer browser</text>
+<rect class="box measured" x="40" y="151" width="184" height="131" rx="8"/>
+<text class="tag" x="55" y="175">D · Dispatch</text>
+<text class="heading" x="55" y="198">Send character</text>
+<text class="body" x="55" y="221">Playwright → CDP</text>
+<text class="body" x="55" y="240">Input.dispatchKeyEvent</text>
+<text class="body" x="55" y="259">(keyDown + keyUp)</text>
+<rect class="box measured" x="286" y="151" width="278" height="131" rx="8"/>
+<text class="tag" x="301" y="175">K · Browser keydown</text>
+<text class="heading" x="301" y="198">Input → edit command</text>
+<text class="body" x="301" y="221">Keydown at the IME input host;</text>
+<text class="body" x="301" y="240">beforeinput → insert-text;</text>
+<text class="body" x="301" y="259">resolve target → textReplace</text>
+<rect class="box " x="286" y="335" width="278" height="109" rx="8"/>
+<text class="heading" x="301" y="362">Process edit + projection</text>
+<text class="body" x="301" y="385">Edit / local projection fast paths.</text>
+<text class="body" x="301" y="404">Worker document work is grouped.</text>
+<text class="body" x="301" y="423">May wait on pending work.</text>
+<rect class="box measured" x="286" y="541" width="278" height="146" rx="8"/>
+<text class="tag" x="301" y="565">L · Local observation</text>
+<text class="heading" x="301" y="588">Render and detect text</text>
+<text class="body" x="301" y="611">Writer updates document fragments.</text>
+<text class="body" x="301" y="630">MutationObserver scans text;</text>
+<text class="body" x="301" y="649">first expected-prefix match → L.</text>
+<text class="body" x="301" y="668">No server round trip required.</text>
+<rect class="box " x="626" y="335" width="278" height="109" rx="8"/>
+<text class="heading" x="641" y="362">Receive and apply update</text>
+<text class="body" x="641" y="385">WebSocket message → Hocuspocus</text>
+<text class="body" x="641" y="404">decode / Yjs transaction;</text>
+<text class="body" x="641" y="423">update listeners run.</text>
+<rect class="box " x="626" y="541" width="278" height="125" rx="8"/>
+<text class="heading" x="641" y="568">Broadcast document update</text>
+<text class="body" x="641" y="591">Serialize update and enqueue</text>
+<text class="body" x="641" y="610">socket sends to connections.</text>
+<text class="body" x="641" y="629">Enqueue is not delivery.</text>
+<rect class="box " x="966" y="541" width="314" height="125" rx="8"/>
+<text class="heading" x="981" y="568">Receive and apply remotely</text>
+<text class="body" x="981" y="591">Observer collaboration provider /</text>
+<text class="body" x="981" y="610">worker applies update and hands</text>
+<text class="body" x="981" y="629">changes to the presentation layer.</text>
+<rect class="box measured" x="966" y="694" width="314" height="135" rx="8"/>
+<text class="tag" x="981" y="718">O · Observer observation</text>
+<text class="heading" x="981" y="741">Render and detect text</text>
+<text class="body" x="981" y="764">Observer updates document fragments.</text>
+<text class="body" x="981" y="783">MutationObserver scans text;</text>
+<text class="body" x="981" y="802">first expected-prefix match → O.</text>
+<path class="flow " d="M224 211H286"/>
+<path class="flow " d="M425 282V335"/>
+<path class="flow " d="M425 444V541"/>
+<path class="flow " d="M564 386H626"/>
+<path class="flow " d="M765 444V541"/>
+<path class="flow " d="M904 603H966"/>
+<path class="flow " d="M1123 666V694"/>
+<text class="label" x="598" y="369" text-anchor="middle">update</text>
+<rect x="286" y="711" width="618" height="111" rx="8" fill="#eef4ff" stroke="#c3d2ec"/>
+<text class="heading" x="302" y="739">Measured boundaries · completed 10-user trial</text>
+<text class="body" x="302" y="764">D → K: input delivery, mean 340 ms</text>
+<text class="body" x="302" y="785">K → L: local text detection, mean 112 ms</text>
+<text class="body" x="302" y="806">K → O: observer text detection, mean 33.8 s (includes the local edit)</text>
+<rect x="40" y="857" width="1240" height="78" rx="8" fill="#fff9ec" stroke="#d8bd7e" stroke-dasharray="5 4"/>
+<text class="heading" x="56" y="883">Parallel work: presence / cursor traffic</text>
+<text class="body" x="56" y="905">Selection/presence changes → awareness messages → backend fan-out → remote caret/selection updates and DOM/style work.</text>
+<text class="body" x="56" y="924">10-user capture: 43,518 incoming awareness frames vs 2,248 document-update frames. ~92% repeated previously sent payloads.</text>
+<rect x="40" y="952" width="1240" height="66" rx="8" fill="#f5f6fa" stroke="#d6dce7"/>
+<text class="heading" x="56" y="977">Shared contention and attribution limits</text>
+<text class="body" x="56" y="998">Queues, GC, profiling overhead, and host paging can delay several stages. Worker CPU export failed; exact per-key blocking is unknown.</text>
+</svg></div>
+<p><strong>Local and observer latency both start at keydown.</strong> The observer measurement includes the local edit and downstream delivery/rendering. Do not add the two means. These observations detect DOM text, not the exact moment pixels were painted. Writer projection/fast paths and canonical worker work are grouped; local observation is not asserted to wait for canonical acknowledgement.</p>
+<details><summary>What the source establishes</summary><table><thead><tr><th>Stage</th><th>Evidence</th></tr></thead><tbody>
+<tr><td>Dispatch</td><td><code>scripts/load-test.mjs:254–272</code>: independent per-user due times; queued mode sends CDP keyDown and keyUp without awaiting each key acknowledgement.</td></tr>
+<tr><td>Input → edit</td><td>Archived engine source: <code>beforeinput</code> with <code>insertText</code> becomes <code>insert-text</code>; the handler resolves selection, awaits pending work, and invokes <code>textReplace</code>. Fast paths may differ; internal worker handoffs are grouped rather than presented as individually timed stages.</td></tr>
+<tr><td>Collaboration transport</td><td><code>DocumentEditor.tsx</code> configures Hocuspocus collaboration; the archived collaboration worker/provider contains Yjs document and awareness handling. Browser/worker CDP logs record WebSocket frame send/receipt.</td></tr>
+<tr><td>Backend</td><td>Installed Hocuspocus 2.15.3: sync messages apply Yjs updates. <code>handleUpdate</code> serializes and sends updates to document connections. <code>handleAwarenessUpdate</code> separately fans presence updates out. The harness records receive, transaction, update-listener/broadcast, and send-enqueue boundaries.</td></tr>
+<tr><td>Observable text</td><td><code>scripts/load-browser.mjs:14–46</code>: a MutationObserver scans marked <code>.superdoc-fragment</code> content. <code>load-metrics.mjs:18–37</code> finds the first expected-prefix match, with cross-browser clock conversion for observer latency.</td></tr>
+</tbody></table></details>
+<details><summary>What these trials suggest — and what they do not prove</summary><ul>
+<li><strong>Queueing / scheduling:</strong> matched U01 update frames averaged 15.2 s from browser send capture to backend receive in the 10-user capture. This includes scheduling, queues and instrumentation, not just network travel. This is an update-frame population, including metadata; it is not a per-key mean.</li>
+<li><strong>Backend work:</strong> transactions averaged 4.7 ms; synchronous update-listener/broadcast-enqueue spans averaged 16.8 ms. Those spans are not total backend residence time and cannot be added to character latency means.</li>
+<li><strong>Presence:</strong> returning payloads support a forwarding/amplification hypothesis. They do not prove an infinite loop or assign a fraction of latency to awareness traffic. Presence changes are not guaranteed once per key.</li>
+<li><strong>DOM/style activity:</strong> samples contain replacement, geometry checks, styles and GC. Inspected Q8n/e9n include overlay visibility/diagnostic checks; Dca constructs remote caret/selection elements. This does not prove those functions account for all rendering cost.</li>
+<li><strong>20-user host:</strong> snapshots 52 s apart show ~2.92 GiB swapped in and ~2.60 GiB swapped out. Host counters do not identify ownership of the pages. The run timed out and has incomplete coverage.</li>
+<li><strong>Scope:</strong> an edit, Yjs update, rendered prefix and WebSocket frame are not one-to-one. Input, transport and DOM observation can batch or wait. The diagram groups internal paths where precise per-key causality was not captured.</li>
+</ul></details>
+<p class="muted">Runtime: SuperDoc 2.18.0 · React adapter 2.13.0 · Hocuspocus server 2.15.3. Based on archived trial assets and the harness; no new benchmark or product fix. <a href="profiled-first-page-2026-10-19/runtime-manifest.json">Runtime manifest</a> · <a href="profiled-first-page-2026-10-19/keypress-source-excerpts.txt">Additional inspected excerpts</a> · <a href="profiled-first-page-2026-10-19/operation-source-excerpts.txt">Overlay/provider excerpts</a>.</p></main></html>

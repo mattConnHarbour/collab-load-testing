@@ -1,0 +1,23 @@
+{
+  "name": "collab-load-testing",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "load-test": "node scripts/load-test.mjs",
+    "test:load-test": "node --test scripts/load-metrics.test.mjs scripts/load-runtime.test.mjs scripts/profiling.test.mjs",
+    "dev": "node scripts/dev.mjs",
+    "build": "npm run build --prefix client",
+    "install:all": "npm ci && npm ci --prefix client && npm ci --prefix server",
+    "server": "node scripts/server.mjs",
+    "observer": "node scripts/observer.mjs",
+    "load-generator": "node scripts/load-test.mjs",
+    "test:smoke": "node --test tests/distributed-smoke.test.mjs",
+    "chart:d3": "node scripts/d3-load-chart.mjs",
+    "chart:timeline": "node scripts/latency-timeline.mjs",
+    "chart:progress": "node scripts/character-progress.mjs"
+  },
+  "devDependencies": {
+    "d3": "7.9.0",
+    "playwright": "1.64.0"
+  }
+}

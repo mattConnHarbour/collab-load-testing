@@ -1,0 +1,163 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Collaboration typing latency · D3</title>
+  <style>
+    *{box-sizing:border-box}body{margin:0;background:#f5f6f9;color:#182033;font:15px system-ui,sans-serif}main{max-width:1150px;margin:40px auto;padding:0 24px 40px}h1{font-size:32px;letter-spacing:-.8px;margin:10px 0}p{line-height:1.6;color:#566075}.eyebrow{font-size:11px;font-weight:700;letter-spacing:1.5px;color:#566075}.metrics{display:flex;gap:16px;margin:25px 0}.metric-card{flex:1;background:white;border:1px solid #e1e5ec;border-radius:12px;padding:20px}.metric-card strong{display:block;font-size:28px;margin:8px 0}.metric-card small{color:#566075}.status{font-size:12px;font-weight:600}.passed{color:#087a46}.failed{color:#b32642}.panel{background:white;border:1px solid #e1e5ec;border-radius:14px;padding:22px}.controls{display:flex;gap:20px;align-items:center;flex-wrap:wrap;margin-bottom:12px}label{display:flex;gap:8px;align-items:center}select,button{font:inherit;border:1px solid #d7dce6;border-radius:7px;background:white;padding:8px 11px;cursor:pointer}button:hover{border-color:#1355ff}button[aria-pressed=true]{background:#edf2ff;border-color:#1355ff}.key{display:flex;gap:6px;flex-wrap:wrap}.key button{font-size:12px;padding:6px 9px}.swatch{display:inline-block;width:10px;height:10px;border-radius:50%;margin-right:6px}svg{display:block;width:100%;height:auto}.axis text{fill:#566075;font:12px system-ui}.axis path,.axis line{stroke:#c9d1de}.grid .domain{display:none}.grid line{stroke:#e9edf3}.grid text{display:none}.dot{cursor:pointer;outline:none}.dot:focus{stroke:#182033;stroke-width:3}.axis-label{fill:#566075;font:13px system-ui}.column-label{fill:#182033;font:600 14px system-ui}.footnote{font-size:12px;margin-top:14px}.scroll{overflow:auto}table{width:100%;border-collapse:collapse;margin-top:18px;font-size:13px}td,th{text-align:left;padding:10px;border-bottom:1px solid #edf0f5;white-space:nowrap}th{color:#566075;font-size:11px}tr.highlight{background:#edf2ff}.tooltip{position:fixed;z-index:2;pointer-events:none;background:#182033;color:white;border-radius:9px;padding:13px 16px;box-shadow:0 8px 24px #18203333;font-size:12px;min-width:235px;line-height:1.8}.tooltip strong{font-size:14px}.tooltip dl{display:grid;grid-template-columns:1fr auto;gap:2px 16px;margin:7px 0 0}.tooltip dd{margin:0}.tooltip dt{color:#c9d1de}a{color:#1355ff}h2{font-size:20px;margin-top:32px}.selected-detail{font-size:13px;min-height:24px;color:#182033;margin:12px 0 0}@media(max-width:640px){main{margin-top:20px;padding:0 12px 24px}h1{font-size:25px}.panel{padding:14px}.metrics{gap:8px}.metric-card{padding:13px}.metric-card strong{font-size:23px}}
+  </style>
+</head>
+<body>
+<main>
+  <div class="eyebrow">COLLABORATION LOAD TEST · SAVED RESULTS</div>
+  <h1>First-page typing latency</h1>
+  <p id="scenario"></p>
+  <div class="metrics" id="metrics"></div>
+  <section class="panel" aria-label="Interactive latency chart">
+    <div class="controls">
+      <label>Latency <select id="metric"><option value="localMs">Local typing</option><option value="remoteMs">Observer arrival</option><option value="deliveryMs">Input delivery</option></select></label>
+      <label><input id="log-scale" type="checkbox"> Log scale</label>
+      <button id="zoom-in" aria-label="Zoom in">+</button>
+      <button id="zoom-out" aria-label="Zoom out">−</button>
+      <button id="reset-zoom">Reset zoom</button>
+      <span id="zoom-level" aria-live="polite">1×</span>
+      <button id="export">Download SVG</button>
+    </div>
+    <svg id="chart" viewBox="0 0 1060 620" role="img" aria-label="Mean latency per user, grouped by number of typing users"></svg>
+    <p class="footnote">Scroll or pinch over the plot to zoom the latency axis; drag to pan. Writer counts stay fixed so both trials remain visible. Use + / − or Reset zoom above. One dot per user at its exact writer count and mean latency. Lower dots mean lower latency. Select a user below to bring their dots forward, or enable log scale to spread the lower values.</p>
+    <div class="key" id="key" aria-label="User color key"></div>
+    <p class="selected-detail" id="selection" aria-live="polite">Hover or focus a dot for details. Select a user to compare their results across trials.</p>
+  </section>
+  <h2>Per-user results</h2>
+  <p class="footnote">Users are ordered by the selected latency, lowest first, within each trial. Means include observed keystrokes; the counts show coverage.</p>
+  <div class="scroll"><table><thead><tr><th>Writers</th><th>User</th><th>Mean local</th><th>Mean observer</th><th>Mean input delivery</th><th>Local / observer keys</th><th>Actual chars/s</th></tr></thead><tbody id="rows"></tbody></table></div>
+  <p class="footnote">Local typing measures actual browser keydown → the first DOM update containing the expected text prefix. Observer arrival measures that keydown → expected text at the observer, after clock calibration. Input delivery measures generator dispatch → browser keydown. DOM arrival does not measure physical screen paint.</p>
+  <p class="footnote" id="validation"></p>
+  <p class="footnote">Separate processes on one machine share CPU and memory. These are single-run exploratory measurements; see the original reports for role locations and annotated document images: <span id="reports"></span>.</p>
+</main>
+<div class="tooltip" id="tooltip" hidden></div>
+<script>/* D3_BUNDLE */</script>
+<script>
+const trials = /* TRIAL_DATA */;
+const points = trials.flatMap(trial => trial.users.map(user => ({...user, writers:trial.writers})));
+const users = [...new Map(points.map(point => [point.id, point.color]))].sort(([a],[b]) => a.localeCompare(b));
+const metrics = {localMs:{label:'Mean local typing latency',short:'local',unit:'ms'},remoteMs:{label:'Mean observer arrival latency',short:'observer',unit:'s'},deliveryMs:{label:'Mean input delivery delay',short:'input delivery',unit:'s'}};
+const pretty = ms => ms === null ? 'Unobserved' : ms >= 1000 ? `${d3.format(',.2f')(ms/1000)} s` : `${d3.format(',.1f')(ms)} ms`;
+let selected = null;
+let metric = 'localMs';
+const svg = d3.select('#chart');
+const tooltip = d3.select('#tooltip');
+const margin = {top:54,right:65,bottom:65,left:92}, width=1060, height=620;
+const x = d3.scaleLinear().domain([d3.min(trials,t=>t.writers)-4,d3.max(trials,t=>t.writers)+4]).range([margin.left,width-margin.right]);
+const grid = svg.append('g').attr('class','grid').attr('transform',`translate(${margin.left},0)`);
+const yAxis = svg.append('g').attr('class','axis').attr('transform',`translate(${margin.left},0)`);
+svg.append('g').attr('class','axis').attr('transform',`translate(0,${height-margin.bottom})`).call(d3.axisBottom(x).tickValues(trials.map(t=>t.writers)).tickSizeOuter(0));
+svg.append('text').attr('class','axis-label').attr('text-anchor','middle').attr('x',(margin.left+width-margin.right)/2).attr('y',height-15).text('Number of typing users');
+const yLabel = svg.append('text').attr('class','axis-label').attr('transform','rotate(-90)').attr('text-anchor','middle').attr('x',-(margin.top+height-margin.bottom)/2).attr('y',22);
+svg.append('g').selectAll('text').data(trials).join('text').attr('class','column-label').attr('x',d=>x(d.writers)).attr('y',27).attr('text-anchor','middle').text(d=>`${d.writers} users`);
+svg.append('defs').append('clipPath').attr('id','plot-clip').append('rect').attr('x',margin.left).attr('y',margin.top).attr('width',width-margin.left-margin.right).attr('height',height-margin.top-margin.bottom);
+const plot = svg.append('g').attr('clip-path','url(#plot-clip)').style('cursor','grab').style('touch-action','none');
+plot.append('rect').attr('x',margin.left).attr('y',margin.top).attr('width',width-margin.left-margin.right).attr('height',height-margin.top-margin.bottom).attr('fill','transparent').attr('pointer-events','all');
+const averageRules = plot.append('g').attr('pointer-events','none');
+const dots = plot.append('g');
+const trialAverage = trial => d3.mean(trial.users,user=>user[metric]??undefined)??null;
+let baseY;
+const zoom = d3.zoom().extent([[margin.left,margin.top],[width-margin.right,height-margin.bottom]]).translateExtent([[margin.left,margin.top],[width-margin.right,height-margin.bottom]]).scaleExtent([1,40]).clickDistance(3)
+  .on('start',()=>{tooltip.property('hidden',true);plot.style('cursor','grabbing');})
+  .on('zoom',event=>{
+    if(!baseY)return;
+    const y=event.transform.rescaleY(baseY), info=metrics[metric], divisor=info.unit==='s'?1000:1;
+    const logarithmic=d3.select('#log-scale').property('checked');
+    yAxis.call(d3.axisLeft(y).ticks(8,logarithmic?'~g':null).tickSizeOuter(0));
+    grid.call(d3.axisLeft(y).ticks(8).tickSize(-(width-margin.left-margin.right)).tickFormat(''));
+    dots.selectAll('.dot').attr('cy',d=>y(d[metric]/divisor));
+    averageRules.selectAll('.average-rule').attr('transform',d=>`translate(0,${y(d.meanMs/divisor)})`);
+    d3.select('#zoom-level').text(`${d3.format('.1f')(event.transform.k)}×`);
+    svg.attr('data-zoom',event.transform.k);
+  })
+  .on('end',()=>plot.style('cursor','grab'));
+plot.call(zoom);
+d3.select('#zoom-in').on('click',()=>plot.call(zoom.scaleBy,1.5));
+d3.select('#zoom-out').on('click',()=>plot.call(zoom.scaleBy,1/1.5));
+d3.select('#reset-zoom').on('click',()=>plot.call(zoom.transform,d3.zoomIdentity));
+d3.select('#scenario').text(`Each user was scheduled to type “${trials[0].expectedText}” once on page 1. Writers were scheduled together at ${trials[0].requestedRate} characters/second, with one passive observer. ${trials.some(trial=>trial.partial)?'Partial runs contain only the measurements collected before failure; missing arrivals are excluded from averages.':''}`);
+d3.select('#reports').selectAll('a').data(trials).join('a').attr('href',d=>d.reportUrl).style('margin-right','12px').text(d=>`${d.writers}-user report`);
+d3.select('#validation').text(trials.map(t=>`${t.writers}-user trial: ${t.status.toUpperCase()}, ${t.users.reduce((sum,u)=>sum+u.capturedKeys,0)} keydowns captured; ${t.users.every(u=>u.matches)?'all final text matched':'some final text did not match'}. ${t.failures.length?`${t.failures.length} request/validation errors were recorded. `:''}Maximum observer clock uncertainty: ±${d3.format(',.1f')(t.clockUncertaintyMs)} ms.`).join(' '));
+function highlight(){
+  dots.selectAll('.dot').attr('opacity',d=>!selected||d.id===selected?1:.12).attr('r',d=>d.id===selected?9:6);
+  dots.selectAll('.dot').filter(d=>d.id===selected).raise();
+  d3.select('#key').selectAll('button[data-user]').attr('aria-pressed',d=>String(d[0]===selected));
+  d3.select('#rows').selectAll('tr').classed('highlight',d=>d.id===selected);
+  d3.select('#selection').text(selected?points.filter(p=>p.id===selected).map(p=>`${p.writers} users · ${p.id}: ${pretty(p[metric])} mean ${metrics[metric].short} latency`).join('   /   '):'Hover or focus a dot for details. Select a user to compare their results across trials.');
+}
+const buttons = d3.select('#key').selectAll('button').data(users).join('button').attr('data-user',d=>d[0]).attr('aria-pressed','false').on('click',(_event,d)=>{selected=selected===d[0]?null:d[0];highlight();});
+buttons.append('span').attr('class','swatch').style('background',d=>d[1]);
+buttons.append('span').text(d=>d[0]);
+d3.select('#key').append('button').text('Show all').on('click',()=>{selected=null;highlight();});
+function showTooltip(event, point){
+  tooltip.html('');
+  tooltip.append('strong').text(`${point.id} · ${point.writers} typing users`);
+  const detail=tooltip.append('dl');
+  for(const [label,value] of [['Mean local',pretty(point.localMs)],['Mean observer',pretty(point.remoteMs)],['Mean input delivery',pretty(point.deliveryMs)],['Local keys',`${point.localCount}/${point.expectedKeys}`],['Observer keys',`${point.remoteCount}/${point.expectedKeys}`],['Achieved rate',`${point.achievedRate?.toFixed(2)??'—'} chars/s`]]){detail.append('dt').text(label);detail.append('dd').text(value);}
+  tooltip.property('hidden',false);
+  const anchor=event.currentTarget.getBoundingClientRect();
+  const px=event.clientX??anchor.right, py=event.clientY??anchor.top;
+  const box=tooltip.node().getBoundingClientRect();
+  tooltip.style('left',`${Math.max(8,Math.min(px+14,window.innerWidth-box.width-8))}px`).style('top',`${Math.max(8,Math.min(py+14,window.innerHeight-box.height-8))}px`);
+}
+function render(){
+  tooltip.property('hidden',true);
+  const info=metrics[metric], divisor=info.unit==='s'?1000:1;
+  const observed=points.filter(p=>Number.isFinite(p[metric]));
+  const positive=observed.every(p=>p[metric]>0);
+  const log=d3.select('#log-scale').property('disabled',!positive);
+  if(!positive)log.property('checked',false);
+  const logarithmic=log.property('checked');
+  const minimum=d3.min(observed,p=>p[metric]/divisor)??0;
+  const maximum=d3.max(observed,p=>p[metric]/divisor)??1;
+  const y=(logarithmic?d3.scaleLog():d3.scaleLinear()).domain(logarithmic?[minimum*.8,maximum*1.15]:[Math.min(0,minimum),maximum*1.1]).nice().range([height-margin.bottom,margin.top]);
+  baseY=y;
+  yAxis.call(d3.axisLeft(y).ticks(8,logarithmic?'~g':null).tickSizeOuter(0));
+  grid.call(d3.axisLeft(y).ticks(8).tickSize(-(width-margin.left-margin.right)).tickFormat(''));
+  yLabel.text(`${info.label} (${info.unit})${logarithmic?' · log scale':''}`);
+  const averages=trials.map((trial,index)=>({writers:trial.writers,meanMs:trialAverage(trial),color:index===0?'#334e7d':'#b45309',dash:index===0?'7 4':'2 4'})).filter(trial=>Number.isFinite(trial.meanMs));
+  const rules=averageRules.selectAll('.average-rule').data(averages,d=>d.writers).join(enter=>{
+    const group=enter.append('g').attr('class','average-rule');
+    group.append('line').attr('x1',margin.left).attr('x2',width-margin.right).attr('stroke-width',1.5);
+    group.append('text').attr('x',width-margin.right-8).attr('y',-8).attr('text-anchor','end').attr('font-family','system-ui,sans-serif').attr('font-size',13).attr('font-weight',600).attr('paint-order','stroke').attr('stroke','white').attr('stroke-width',4).attr('stroke-linejoin','round');
+    return group;
+  }).attr('data-writers',d=>d.writers).attr('data-mean-ms',d=>d.meanMs).attr('transform',d=>`translate(0,${y(d.meanMs/divisor)})`);
+  rules.select('line').attr('stroke',d=>d.color).attr('stroke-dasharray',d=>d.dash);
+  rules.select('text').attr('fill',d=>d.color).text(d=>`${d.writers}-user average · ${pretty(d.meanMs)}`);
+  dots.selectAll('circle').data(observed.sort((a,b)=>a[metric]-b[metric]),d=>`${d.writers}-${d.id}`).join('circle').attr('class','dot').attr('data-user',d=>d.id).attr('data-writers',d=>d.writers).attr('data-latency-ms',d=>d[metric]).attr('cx',d=>x(d.writers)).attr('cy',d=>y(d[metric]/divisor)).attr('r',6).attr('fill',d=>d.color).attr('stroke','white').attr('stroke-width',1).attr('tabindex',0).attr('role','button').attr('aria-label',d=>`${d.id}, ${d.writers} users, ${pretty(d[metric])} mean ${info.short} latency`).on('pointerenter',showTooltip).on('pointermove',showTooltip).on('pointerleave',()=>tooltip.property('hidden',true)).on('focus',showTooltip).on('blur',()=>tooltip.property('hidden',true)).on('click',(_event,d)=>{selected=selected===d.id?null:d.id;highlight();}).on('keydown',(event,d)=>{if(event.key==='Enter'||event.key===' '){event.preventDefault();selected=selected===d.id?null:d.id;highlight();}});
+  const cards=d3.select('#metrics').selectAll('.metric-card').data(trials).join('div').attr('class','metric-card');
+  cards.html('');
+  cards.append('div').text(d=>`${d.writers} typing users`);
+  cards.append('strong').text(d=>pretty(trialAverage(d)));
+  cards.append('small').text(`Mean ${info.short} latency across users`);
+  cards.append('p').attr('class',d=>`status ${d.status}`).text(d=>`${d.status.toUpperCase()}${d.status==='failed'?' · request/validation errors':''}`);
+  const rows=d3.select('#rows').selectAll('tr').data([...points].sort((a,b)=>a.writers-b.writers||(a[metric]??Infinity)-(b[metric]??Infinity))).join('tr');
+  rows.html('');
+  rows.append('td').text(d=>d.writers);
+  const userCell=rows.append('td');userCell.append('span').attr('class','swatch').style('background',d=>d.color);userCell.append('span').text(d=>d.id);
+  for(const field of ['localMs','remoteMs','deliveryMs'])rows.append('td').text(d=>pretty(d[field]));
+  rows.append('td').text(d=>`${d.localCount}/${d.expectedKeys} · ${d.remoteCount}/${d.expectedKeys}`);
+  rows.append('td').text(d=>d.achievedRate?.toFixed(2)??'—');
+  highlight();
+  plot.call(zoom.transform,d3.zoomIdentity);
+}
+d3.select('#metric').on('change',event=>{metric=event.target.value;render();});
+d3.select('#log-scale').on('change',render);
+d3.select('#export').on('click',()=>{
+  const clone=svg.node().cloneNode(true);
+  clone.setAttribute('xmlns','http://www.w3.org/2000/svg');
+  const style=document.createElementNS('http://www.w3.org/2000/svg','style');
+  style.textContent=document.querySelector('style').textContent;clone.prepend(style);
+  const blob=new Blob([new XMLSerializer().serializeToString(clone)],{type:'image/svg+xml'});
+  const link=document.createElement('a');link.href=URL.createObjectURL(blob);link.download=`latency-${metric}.svg`;link.click();setTimeout(()=>URL.revokeObjectURL(link.href),1000);
+});
+render();
+</script>
+</body>
+</html>
